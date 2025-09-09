@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Captioning Demo</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #030407 0%, #110818 100%);
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(31, 38, 135, 0.37);
+      max-width: 800px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .server-info {
+      font-size: 14px;
+      margin-bottom: 15px;
+    }
+
+    .upload-area {
+      border: 2px dashed rgba(255, 255, 255, 0.6);
+      border-radius: 8px;
+      padding: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 15px;
+    }
+    .upload-area:hover {
+      border-color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .upload-area.dragover {
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .upload-button {
+      margin-top: 8px;
+      background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #imagePreview {
+      display: none;
+      max-height: 100px;
+      margin: 10px 0;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .generate-button {
+      background: linear-gradient(45deg, #4ECDC4, #44A08D);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .generate-button:disabled {
+      background: rgba(255, 255, 255, 0.3);
+      cursor: not-allowed;
+    }
+
+    .result-section {
+      margin-top: 15px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+    }
+    .result-title {
+      font-size: 13px;
+      margin-bottom: 6px;
+      opacity: 0.8;
+    }
+    .caption {
+      font-size: 16px;
+      font-weight: bold;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    .loading {
+      display: none;
+      margin-top: 10px;
+    }
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top: 3px solid white;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error {
+      margin-top: 10px;
+      color: #ff6b6b;
+      font-size: 13px;
+    }
+    .success {
+      color: #4ECDC4;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="server-info" id="serverStatus">Checking server...</div>
+
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+      <div>Click or Drag & Drop an image</div>
+      <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+      <button class="upload-button">Choose File</button>
+    </div>
+
+    <img id="imagePreview" alt="Preview">
+
+    <button id="generateBtn" class="generate-button" onclick="generateCaption()" disabled>
+      Generate Caption
+    </button>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <div>Processing...</div>
+    </div>
+
+    <div class="result-section" id="resultContainer" style="display: none;">
+      <div class="result-title">Caption:</div>
+      <div class="caption" id="captionResult"></div>
+    </div>
+
+    <div class="error" id="errorMessage"></div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:5000';
+    let selectedFile = null;
+
+    window.onload = function() {
+      checkServerHealth();
+      setupDragAndDrop();
+    };
+
+    function checkServerHealth() {
+      fetch(`${API_BASE}/health`)
+        .then(r => r.json())
+        .then(d => {
+          const status = document.getElementById('serverStatus');
+          if (d.model_loaded) {
+            status.innerHTML = '✅ Model Loaded - Ready';
+            status.className = 'success';
+          } else {
+            status.innerHTML = '⚠️ Model Loading...';
+            status.className = 'error';
+          }
+        })
+        .catch(() => {
+          const status = document.getElementById('serverStatus');
+          status.innerHTML = '❌ Server Offline';
+          status.className = 'error';
+        });
+    }
+
+    function setupDragAndDrop() {
+      const area = document.querySelector('.upload-area');
+      area.addEventListener('dragover', e => {
+        e.preventDefault(); area.classList.add('dragover');
+      });
+      area.addEventListener('dragleave', e => {
+        e.preventDefault(); area.classList.remove('dragover');
+      });
+      area.addEventListener('drop', e => {
+        e.preventDefault(); area.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+      });
+    }
+
+    function handleFileSelect(event) {
+      handleFile(event.target.files[0]);
+    }
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        showError('Invalid image file');
+        return;
+      }
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const preview = document.getElementById('imagePreview');
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+      document.getElementById('generateBtn').disabled = false;
+      document.getElementById('resultContainer').style.display = 'none';
+      clearError();
+    }
+
+    function generateCaption() {
+      if (!selectedFile) return showError('No image selected');
+      const formData = new FormData();
+      formData.append('image', selectedFile);
+
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('generateBtn').disabled = true;
+      document.getElementById('resultContainer').style.display = 'none';
+      clearError();
+
+      fetch(`${API_BASE}/predict`, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(d => {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('generateBtn').disabled = false;
+          if (d.error) return showError(d.error);
+          document.getElementById('captionResult').textContent = d.caption;
+          document.getElementById('resultContainer').style.display = 'block';
+        })
+        .catch(() => {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('generateBtn').disabled = false;
+          showError('Network error');
+        });
+    }
+
+    function showError(msg) {
+      document.getElementById('errorMessage').textContent = msg;
+    }
+    function clearError() {
+      document.getElementById('errorMessage').textContent = '';
+    }
+  </script>
+</body>
+</html>
